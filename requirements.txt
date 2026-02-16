@@ -1,5 +1,8 @@
 fastapi
 uvicorn
 pydantic
-# Fetches directly from the github repo as requested
+numpy
+pandas
+requests
+websocket-client
 git+https://github.com/cleitonleonel/pyquotex.git
