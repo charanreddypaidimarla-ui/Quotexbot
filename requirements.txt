@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+pydantic
+# Fetches directly from the github repo as requested
+git+https://github.com/cleitonleonel/pyquotex.git
