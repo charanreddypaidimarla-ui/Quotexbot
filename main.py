@@ -1,5 +1,6 @@
 import asyncio
 import time
+import os
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -166,34 +167,38 @@ async def login(req: LoginRequest):
     """Endpoint to authenticate the bot and save session data."""
     global bot_client
     try:
+        # Force the absolute path so Render doesn't lose the folder
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        session_dir = os.path.join(base_dir, "quotex_session_data")
+        
+        # Diagnostic Check: Did Render actually load the file?
+        session_file = os.path.join(session_dir, "session.json")
+        if not os.path.exists(session_file):
+            return {"status": "error", "message": f"Session file missing at {session_file}. Render did not copy it."}
+            
         if bot_client:
             await bot_client.close()
             
-        # Use a temporary client. user_data_dir enables the "mockpath" to save the session token!
         temp_client = Quotex(
             email=req.email, 
             password=req.password, 
             lang="en",
-            user_data_dir="quotex_session_data"
+            user_data_dir=session_dir
         )
         
         check, reason = await temp_client.connect()
         
         if check:
             bot_client = temp_client
-            bot_client.set_account_mode("PRACTICE") # Change to REAL if needed
-            
-            # Wait 3 seconds to ensure the websocket receives market data before continuing
+            bot_client.set_account_mode("PRACTICE") 
             await asyncio.sleep(3) 
-            
-            return {
-                "status": "success", 
-                "message": "Connected to Quotex. Session saved to 'quotex_session_data' folder."
-            }
+            return {"status": "success", "message": "Connected using saved session!"}
         else:
             raise HTTPException(status_code=401, detail=f"Login failed: {reason}")
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Server error during login: {str(e)}")
+        # This will catch the 'No response stored' error cleanly
+        raise HTTPException(status_code=500, detail=f"Cloudflare block or server error: {str(e)}")
 
 @app.get("/get_signal")
 async def get_signal():
