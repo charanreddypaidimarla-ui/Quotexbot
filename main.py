@@ -25,7 +25,13 @@ async def get_high_payout_pairs() -> list:
     if not bot_client:
         return []
         
-    payment_data = bot_client.get_payment()
+    try:
+        # Prevent crash if websocket hasn't populated market data yet
+        payment_data = bot_client.get_payment()
+    except Exception as e:
+        print(f"Market data not ready yet: {e}")
+        return []
+        
     all_assets = await bot_client.get_all_assets()
     
     if not payment_data or not all_assets:
@@ -157,23 +163,37 @@ async def analyze_pair(asset_code: str, display_name: str) -> Optional[Dict[str,
 
 @app.post("/login")
 async def login(req: LoginRequest):
-    """Endpoint to authenticate the bot."""
+    """Endpoint to authenticate the bot and save session data."""
     global bot_client
     try:
         if bot_client:
             await bot_client.close()
             
-        bot_client = Quotex(email=req.email, password=req.password, lang="en")
-        check, reason = await bot_client.connect()
+        # Use a temporary client. user_data_dir enables the "mockpath" to save the session token!
+        temp_client = Quotex(
+            email=req.email, 
+            password=req.password, 
+            lang="en",
+            user_data_dir="quotex_session_data"
+        )
+        
+        check, reason = await temp_client.connect()
         
         if check:
+            bot_client = temp_client
             bot_client.set_account_mode("PRACTICE") # Change to REAL if needed
-            return {"status": "success", "message": "Successfully connected to Quotex websocket."}
+            
+            # Wait 3 seconds to ensure the websocket receives market data before continuing
+            await asyncio.sleep(3) 
+            
+            return {
+                "status": "success", 
+                "message": "Connected to Quotex. Session saved to 'quotex_session_data' folder."
+            }
         else:
-            bot_client = None
             raise HTTPException(status_code=401, detail=f"Login failed: {reason}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Server error during login: {str(e)}")
 
 @app.get("/get_signal")
 async def get_signal():
@@ -183,7 +203,7 @@ async def get_signal():
         
     pairs = await get_high_payout_pairs()
     if not pairs:
-        return {"status": "error", "message": "Could not find any high payout pairs currently open."}
+        return {"status": "waiting", "message": "Market data is still loading or no 90%+ pairs found. Try again in a few seconds."}
         
     best_signal = None
     highest_confidence = 0
@@ -212,4 +232,3 @@ async def get_signal():
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-  
